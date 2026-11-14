@@ -1,0 +1,38 @@
+# Local development stack for KubeZero
+# Runs the wake-proxy in mock mode alongside a sample upstream HTTP service and Prometheus.
+version: "3.8"
+
+services:
+  # Mock upstream HTTP service simulating a business application
+  sample-app:
+    image: hashicorp/http-echo:latest
+    command: ["-text", "Hello from behind KubeZero Wake-Proxy!"]
+    ports:
+      - "5678:5678"
+
+  # KubeZero Wake-on-Traffic reverse proxy
+  wake-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    ports:
+      - "8080:8080" # Proxy entrypoint
+      - "9090:9090" # Prometheus metrics & health probes
+    environment:
+      - MOCK_MODE=true
+      - TARGET_URL=http://sample-app:5678
+      - NAMESPACE=dev
+      - DEPLOYMENT=sample-app
+      - READINESS_TIMEOUT=30s
+    depends_on:
+      - sample-app
+
+  # Prometheus scraper observing KubeZero FinOps savings & wake durations
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./config/prometheus.dev.yaml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - wake-proxy

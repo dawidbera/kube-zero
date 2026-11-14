@@ -1,0 +1,8 @@
+# Prometheus configuration for scraping KubeZero metrics during local development
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "kubezero-wake-proxy"
+    static_configs:
+      - targets: ["wake-proxy:9090"]
