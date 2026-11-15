@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -20,6 +21,14 @@ const (
 	AnnotationOriginalReplicas = "finops.kubezero.io/original-replicas"
 	// AnnotationManagedBy denotes KubeZero ownership.
 	AnnotationManagedBy = "finops.kubezero.io/managed-by"
+	// AnnotationOriginalSelector stores the JSON-encoded original Service selector before redirecting to wake-proxy.
+	AnnotationOriginalSelector = "finops.kubezero.io/original-selector"
+	// AnnotationTargetDeployment associates a redirected Service with its owning deployment name.
+	AnnotationTargetDeployment = "finops.kubezero.io/target-deployment"
+	// LabelWakeProxyKey is the selector key pointing traffic to the KubeZero Wake Proxy.
+	LabelWakeProxyKey = "app.kubernetes.io/name"
+	// LabelWakeProxyValue is the selector value pointing traffic to the KubeZero Wake Proxy.
+	LabelWakeProxyValue = "kubezero-wake-proxy"
 )
 
 // ZeroPolicyReconciler executes reconciliation cycles for ZeroPolicy resources against Kubernetes deployments.
@@ -102,6 +111,13 @@ func (r *ZeroPolicyReconciler) Reconcile(ctx context.Context, policy *v1alpha1.Z
 			return &status, fmt.Errorf("failed to scale deployment %s to zero: %w", targetName, err)
 		}
 
+		// Redirect service traffic to wake-proxy if Wake-on-Traffic is enabled
+		if policy.ShouldWakeOnTraffic() {
+			if err := r.redirectServiceTraffic(ctx, namespace, targetName, deploy.Spec.Template.Labels); err != nil {
+				r.logger.Warn("failed to redirect service traffic to wake proxy", "namespace", namespace, "deployment", targetName, "err", err)
+			}
+		}
+
 		nowMeta := metav1.NewTime(now)
 		status.Phase = v1alpha1.PhaseSleeping
 		status.OriginalReplicas = currentReplicas
@@ -130,6 +146,11 @@ func (r *ZeroPolicyReconciler) Reconcile(ctx context.Context, policy *v1alpha1.Z
 		if _, err := r.client.AppsV1().Deployments(namespace).Update(ctx, deploy, metav1.UpdateOptions{}); err != nil {
 			status.Phase = v1alpha1.PhaseFailed
 			return &status, fmt.Errorf("failed to restore deployment %s replicas: %w", targetName, err)
+		}
+
+		// Restore original service routing
+		if err := r.restoreServiceTraffic(ctx, namespace, targetName, deploy.Spec.Template.Labels); err != nil {
+			r.logger.Warn("failed to restore service traffic", "namespace", namespace, "deployment", targetName, "err", err)
 		}
 
 		// Calculate savings during sleep period
@@ -163,6 +184,150 @@ func (r *ZeroPolicyReconciler) Reconcile(ctx context.Context, policy *v1alpha1.Z
 	}
 
 	return &status, nil
+}
+
+// redirectServiceTraffic modifies matching services to route incoming traffic to KubeZero Wake Proxy.
+//
+// Parameters:
+//   - ctx: Context for API calls.
+//   - namespace: Target namespace.
+//   - targetName: Name of the sleeping deployment.
+//   - podLabels: Labels defined on the deployment's pod template.
+//
+// Returns error if service discovery or update fails.
+func (r *ZeroPolicyReconciler) redirectServiceTraffic(ctx context.Context, namespace, targetName string, podLabels map[string]string) error {
+	services, err := findMatchingServices(ctx, r.client, namespace, targetName, podLabels)
+	if err != nil {
+		return err
+	}
+
+	for _, svc := range services {
+		// Skip if already redirected
+		if svc.Annotations != nil && svc.Annotations[AnnotationOriginalSelector] != "" {
+			continue
+		}
+
+		if svc.Annotations == nil {
+			svc.Annotations = make(map[string]string)
+		}
+
+		selectorBytes, err := json.Marshal(svc.Spec.Selector)
+		if err != nil {
+			r.logger.Warn("failed to serialize original service selector", "service", svc.Name, "err", err)
+			continue
+		}
+
+		svc.Annotations[AnnotationOriginalSelector] = string(selectorBytes)
+		svc.Annotations[AnnotationTargetDeployment] = targetName
+		svc.Annotations[AnnotationManagedBy] = "kubezero"
+
+		svc.Spec.Selector = map[string]string{
+			LabelWakeProxyKey: LabelWakeProxyValue,
+		}
+
+		if _, err := r.client.CoreV1().Services(namespace).Update(ctx, &svc, metav1.UpdateOptions{}); err != nil {
+			r.logger.Error("failed to redirect service selector to wake proxy", "service", svc.Name, "err", err)
+			return fmt.Errorf("failed to redirect service %s: %w", svc.Name, err)
+		}
+
+		r.logger.Info("redirected service traffic to wake proxy", "namespace", namespace, "service", svc.Name)
+	}
+
+	return nil
+}
+
+// restoreServiceTraffic restores the original pod selector on services previously redirected to wake proxy.
+//
+// Parameters:
+//   - ctx: Context for API calls.
+//   - namespace: Target namespace.
+//   - targetName: Name of the waking deployment.
+//   - podLabels: Labels defined on the deployment's pod template.
+//
+// Returns error if service discovery or update fails.
+func (r *ZeroPolicyReconciler) restoreServiceTraffic(ctx context.Context, namespace, targetName string, podLabels map[string]string) error {
+	services, err := findMatchingServices(ctx, r.client, namespace, targetName, podLabels)
+	if err != nil {
+		return err
+	}
+
+	for _, svc := range services {
+		origSelectorJSON, ok := svc.Annotations[AnnotationOriginalSelector]
+		if !ok || origSelectorJSON == "" {
+			continue
+		}
+
+		var origSelector map[string]string
+		if err := json.Unmarshal([]byte(origSelectorJSON), &origSelector); err != nil {
+			r.logger.Error("failed to unmarshal original service selector", "service", svc.Name, "err", err)
+			continue
+		}
+
+		svc.Spec.Selector = origSelector
+		delete(svc.Annotations, AnnotationOriginalSelector)
+		delete(svc.Annotations, AnnotationTargetDeployment)
+
+		if _, err := r.client.CoreV1().Services(namespace).Update(ctx, &svc, metav1.UpdateOptions{}); err != nil {
+			r.logger.Error("failed to restore original service selector", "service", svc.Name, "err", err)
+			return fmt.Errorf("failed to restore service %s: %w", svc.Name, err)
+		}
+
+		r.logger.Info("restored original service traffic", "namespace", namespace, "service", svc.Name)
+	}
+
+	return nil
+}
+
+// findMatchingServices discovers Services in the given namespace corresponding to the target workload.
+//
+// Parameters:
+//   - ctx: Context for API calls.
+//   - client: Kubernetes client interface.
+//   - namespace: Workload namespace.
+//   - targetName: Name of the deployment.
+//   - podLabels: Pod template labels to match against Service selectors.
+//
+// Returns matching Services or an error.
+func findMatchingServices(ctx context.Context, client kubernetes.Interface, namespace, targetName string, podLabels map[string]string) ([]corev1.Service, error) {
+	if client == nil {
+		return nil, nil
+	}
+
+	svcList, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services in namespace %s: %w", namespace, err)
+	}
+
+	var matched []corev1.Service
+	for _, svc := range svcList.Items {
+		// Rule 1: Service name matches target deployment name
+		if svc.Name == targetName {
+			matched = append(matched, svc)
+			continue
+		}
+
+		// Rule 2: Service has target deployment annotation from previous redirect
+		if svc.Annotations != nil && svc.Annotations[AnnotationTargetDeployment] == targetName {
+			matched = append(matched, svc)
+			continue
+		}
+
+		// Rule 3: Service selector is non-empty and matches pod template labels
+		if len(svc.Spec.Selector) > 0 && len(podLabels) > 0 {
+			isMatch := true
+			for k, v := range svc.Spec.Selector {
+				if podLabels[k] != v {
+					isMatch = false
+					break
+				}
+			}
+			if isMatch {
+				matched = append(matched, svc)
+			}
+		}
+	}
+
+	return matched, nil
 }
 
 // extractPodResourceRequests parses CPU cores and memory bytes requests across all containers in a deployment.

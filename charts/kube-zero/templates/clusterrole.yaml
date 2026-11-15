@@ -14,6 +14,9 @@ rules:
     resources: ["deployments", "deployments/scale"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: [""]
-    resources: ["pods", "services", "endpoints"]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "endpoints"]
     verbs: ["get", "list", "watch"]
 {{- end }}
