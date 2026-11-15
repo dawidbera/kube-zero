@@ -1,0 +1,65 @@
+# Deployment for KubeZero Wake-on-Traffic reverse proxy daemon
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-zero.fullname" . }}-wake-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-zero.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wake-proxy
+spec:
+  replicas: {{ .Values.wakeProxy.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kube-zero.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: wake-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "kube-zero.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: wake-proxy
+    spec:
+      serviceAccountName: {{ include "kube-zero.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: wake-proxy
+          image: "{{ .Values.wakeProxy.image.repository }}:{{ .Values.wakeProxy.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.wakeProxy.image.pullPolicy }}
+          args:
+            - "--port={{ .Values.wakeProxy.service.port }}"
+            - "--metrics-port={{ .Values.wakeProxy.service.metricsPort }}"
+            - "--readiness-timeout={{ .Values.wakeProxy.readinessTimeout }}"
+          ports:
+            - name: http-proxy
+              containerPort: {{ .Values.wakeProxy.service.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.wakeProxy.service.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.wakeProxy.resources | nindent 12 }}
+      {{- with .Values.wakeProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.wakeProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.wakeProxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

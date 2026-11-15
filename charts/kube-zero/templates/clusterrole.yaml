@@ -1,0 +1,19 @@
+# ClusterRole defining KubeZero RBAC permissions across the cluster
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kube-zero.fullname" . }}-role
+  labels:
+    {{- include "kube-zero.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["finops.kubezero.io"]
+    resources: ["zeropolicies", "zeropolicies/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

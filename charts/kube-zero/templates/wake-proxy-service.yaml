@@ -1,0 +1,23 @@
+# Service exposing KubeZero Wake-Proxy for internal traffic interception
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kube-zero.fullname" . }}-wake-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-zero.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wake-proxy
+spec:
+  type: {{ .Values.wakeProxy.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.wakeProxy.service.port }}
+      targetPort: http-proxy
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.wakeProxy.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kube-zero.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: wake-proxy

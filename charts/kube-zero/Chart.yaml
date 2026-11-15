@@ -1,0 +1,21 @@
+# Chart.yaml defines metadata for the KubeZero Helm chart.
+# KubeZero manages automated scale-to-zero and wake-on-traffic for Kubernetes workloads.
+apiVersion: v2
+name: kube-zero
+description: Kubernetes FinOps Auto-Sleep & Wake-on-Traffic Operator
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - finops
+  - cost-optimization
+  - operator
+  - scale-to-zero
+  - wake-on-traffic
+home: https://github.com/dawidbera/kube-zero
+sources:
+  - https://github.com/dawidbera/kube-zero
+maintainers:
+  - name: dawidbera
+    url: https://github.com/dawidbera

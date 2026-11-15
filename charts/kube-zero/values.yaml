@@ -1,0 +1,88 @@
+# Default values for KubeZero Helm chart.
+# This file configures the controller operator, wake-proxy, and monitoring settings.
+
+# Global overrides
+nameOverride: ""
+fullnameOverride: ""
+
+# ServiceAccount settings for KubeZero components
+serviceAccount:
+  # create specifies whether a dedicated ServiceAccount should be created
+  create: true
+  # annotations to add to the ServiceAccount (e.g. AWS IAM roles for service accounts - IRSA)
+  annotations: {}
+  # name of the ServiceAccount to use. If not set and create is true, a name is generated using fullname template
+  name: ""
+
+# RBAC configuration
+rbac:
+  # create specifies whether ClusterRole and ClusterRoleBinding should be created
+  create: true
+
+# Controller component settings
+controller:
+  replicaCount: 1
+
+  image:
+    repository: ghcr.io/dawidbera/kube-zero-controller
+    pullPolicy: IfNotPresent
+    # tag defaults to chart appVersion if empty
+    tag: ""
+
+  # Arguments passed to the controller binary
+  syncInterval: "30s"
+  metricsPort: 9091
+
+  # Resource allocations (KubeZero controller is lightweight Go binary)
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Wake-on-Traffic Reverse Proxy component settings
+wakeProxy:
+  replicaCount: 2
+
+  image:
+    repository: ghcr.io/dawidbera/kube-zero-wake-proxy
+    pullPolicy: IfNotPresent
+    tag: ""
+
+  # Ports configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    metricsPort: 9090
+
+  # Default timeouts and buffer configurations
+  readinessTimeout: "45s"
+  maxBufferedBodyBytes: 10485760 # 10MB limit
+
+  # Resource allocations for high-throughput HTTP proxy
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Prometheus Monitoring integration
+monitoring:
+  # serviceMonitor enables Prometheus Operator ServiceMonitor resource
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 10s
+    labels: {}
