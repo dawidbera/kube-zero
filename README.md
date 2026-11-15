@@ -68,6 +68,19 @@ A pre-built, production-ready Grafana dashboard is available in [dashboards/graf
 
 ---
 
+## Development & Testing
+
+Run unit tests with Go race detection, static analysis, and Helm chart validation:
+
+```bash
+make test
+make vet
+make build
+helm lint charts/kube-zero
+```
+
+---
+
 ## Technical Lessons Learned (Gotchas)
 
 - **Go Memory Footprint in Kubernetes:** Standard Go binaries in a `distroless` container run comfortably with a memory footprint under 25 MB, avoiding the node overhead associated with running operators in JVM or Node.js.

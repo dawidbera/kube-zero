@@ -15,12 +15,10 @@ import (
 	"time"
 
 	"github.com/kube-zero/kube-zero/internal/finops"
+	"github.com/kube-zero/kube-zero/internal/k8s"
 	"github.com/kube-zero/kube-zero/internal/proxy"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // getEnv retrieves an environment variable or returns the default value if unset.
@@ -39,23 +37,6 @@ func getEnvInt64(key string, defaultVal int64) int64 {
 		}
 	}
 	return defaultVal
-}
-
-// createKubernetesClient attempts to build a Kubernetes clientset using in-cluster config or local kubeconfig.
-func createKubernetesClient(kubeconfigPath string) (kubernetes.Interface, error) {
-	var cfg *rest.Config
-	var err error
-
-	if kubeconfigPath != "" {
-		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	} else {
-		cfg, err = rest.InClusterConfig()
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	return kubernetes.NewForConfig(cfg)
 }
 
 func main() {
@@ -85,7 +66,7 @@ func main() {
 		logger.Info("running in mock mode with in-memory scaler", "namespace", *namespaceFlag, "deployment", *deploymentFlag)
 		scaler = proxy.NewMockScaler(1, 1)
 	} else {
-		k8sClient, err := createKubernetesClient(*kubeconfigFlag)
+		k8sClient, err := k8s.NewClientset(*kubeconfigFlag)
 		if err != nil {
 			logger.Warn("could not connect to Kubernetes API; falling back to MockScaler for local execution", "err", err)
 			scaler = proxy.NewMockScaler(1, 1)

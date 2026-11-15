@@ -1,0 +1,72 @@
+# Continuous Integration Workflow for KubeZero
+# Runs tests with Go race detection, static code analysis (go vet), binary compilation, and Helm chart linting.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  # Unit and Race Detection Tests
+  test:
+    name: Run Unit Tests & Vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository source
+        uses: actions/checkout@v4
+
+      - name: Set up Go runtime environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Verify Go dependencies
+        run: go mod verify
+
+      - name: Execute static analysis (go vet)
+        run: go vet ./...
+
+      - name: Execute test suite with race detector
+        run: go test -v -race ./...
+
+  # Binary Compilation Verification
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Check out repository source
+        uses: actions/checkout@v4
+
+      - name: Set up Go runtime environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Compile KubeZero controller and wake-proxy
+        run: make build
+
+  # Helm Chart Syntax and Validation
+  helm-lint:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository source
+        uses: actions/checkout@v4
+
+      - name: Set up Helm CLI
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Lint KubeZero Helm Chart
+        run: helm lint charts/kube-zero
