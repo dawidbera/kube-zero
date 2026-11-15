@@ -30,6 +30,19 @@ spec:
             - "--port={{ .Values.wakeProxy.service.port }}"
             - "--metrics-port={{ .Values.wakeProxy.service.metricsPort }}"
             - "--readiness-timeout={{ .Values.wakeProxy.readinessTimeout }}"
+            {{- range .Values.wakeProxy.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: TARGET_URL
+              value: {{ .Values.wakeProxy.targetUrl | default "http://127.0.0.1:3000" | quote }}
+            - name: NAMESPACE
+              value: {{ .Values.wakeProxy.targetNamespace | default .Release.Namespace | quote }}
+            - name: DEPLOYMENT
+              value: {{ .Values.wakeProxy.targetDeployment | default "sample-app" | quote }}
+            {{- with .Values.wakeProxy.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http-proxy
               containerPort: {{ .Values.wakeProxy.service.port }}

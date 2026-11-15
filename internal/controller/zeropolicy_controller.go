@@ -89,11 +89,18 @@ func (r *ZeroPolicyReconciler) Reconcile(ctx context.Context, policy *v1alpha1.Z
 		r.logger.Error("inactivity check error", "policy", policy.Name, "err", err)
 	}
 
-	shouldSleep := decision == DecisionSleep || isIdle
 	shouldWake := decision == DecisionActive
 
 	// Case 1: Workload should scale to 0
-	if shouldSleep && currentReplicas > 0 {
+	// Sleep trigger occurs when:
+	// - Inactivity timeout expired (isIdle == true), OR
+	// - Schedule indicates sleep (decision == DecisionSleep) AND policy is not currently in PhaseSleeping.
+	// If policy is already PhaseSleeping and currentReplicas > 0, it was woken by Wake-on-Traffic;
+	// we do not immediately force it back to zero on the same sleep cycle.
+	canSleepOnSchedule := decision == DecisionSleep && status.Phase != v1alpha1.PhaseSleeping
+	shouldScaleToZero := (canSleepOnSchedule || isIdle) && currentReplicas > 0
+
+	if shouldScaleToZero {
 		r.logger.Info("scaling workload to zero", "namespace", namespace, "deployment", targetName, "previousReplicas", currentReplicas)
 
 		// Preserve original replicas in deployment annotation
@@ -129,7 +136,20 @@ func (r *ZeroPolicyReconciler) Reconcile(ctx context.Context, policy *v1alpha1.Z
 		return &status, nil
 	}
 
-	// Case 2: Workload should wake up
+	// Case 2: Workload was sleeping but has been woken up (e.g. by Wake-on-Traffic proxy)
+	if status.Phase == v1alpha1.PhaseSleeping && currentReplicas > 0 {
+		r.logger.Info("detected wake-on-traffic activation for sleeping workload", "namespace", namespace, "deployment", targetName, "currentReplicas", currentReplicas)
+		status.Phase = v1alpha1.PhaseActive
+		if err := r.restoreServiceTraffic(ctx, namespace, targetName, deploy.Spec.Template.Labels); err != nil {
+			r.logger.Warn("failed to restore service traffic on wake-on-traffic", "namespace", namespace, "deployment", targetName, "err", err)
+		}
+		if r.metrics != nil {
+			r.metrics.SleepingDeployments.WithLabelValues(namespace, targetName).Set(0)
+		}
+		return &status, nil
+	}
+
+	// Case 3: Workload should wake up on schedule
 	if shouldWake && currentReplicas == 0 {
 		targetReplicas := int32(1)
 		if orig, ok := deploy.Annotations[AnnotationOriginalReplicas]; ok {

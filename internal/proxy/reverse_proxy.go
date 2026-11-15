@@ -146,7 +146,8 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wait for pod readiness
-	if err := p.waitForReady(ctx); err != nil {
+	readyPodIP, err := p.waitForReady(ctx)
+	if err != nil {
 		p.logger.Warn("workload failed to become ready in time",
 			"namespace", p.cfg.Namespace,
 			"deployment", p.cfg.Deployment,
@@ -172,12 +173,27 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.cfg.Metrics.WakeDurationSeconds.WithLabelValues(p.cfg.Namespace, p.cfg.Deployment).Observe(wakeDuration.Seconds())
 	}
 
+	// Forward directly to revived pod IP if discovered, avoiding service loop
+	if readyPodIP != "" {
+		port := p.cfg.TargetURL.Port()
+		if port == "" {
+			port = "8080"
+		}
+		targetURL := *p.cfg.TargetURL
+		targetURL.Host = fmt.Sprintf("%s:%s", readyPodIP, port)
+		p.logger.Debug("routing directly to revived pod IP", "target", targetURL.String())
+		directProxy := httputil.NewSingleHostReverseProxy(&targetURL)
+		directProxy.ServeHTTP(w, r)
+		return
+	}
+
 	// Forward the buffered request to the freshly revived workload
 	p.reverseProxy.ServeHTTP(w, r)
 }
 
 // waitForReady polls the Scaler until at least one replica is ready or timeout occurs.
-func (p *WakeProxy) waitForReady(ctx context.Context) error {
+// Returns the discovered ready pod IP, or empty string.
+func (p *WakeProxy) waitForReady(ctx context.Context) (string, error) {
 	deadline := time.Now().Add(p.cfg.ReadinessTimeout)
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
@@ -185,10 +201,10 @@ func (p *WakeProxy) waitForReady(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return "", ctx.Err()
 		case now := <-ticker.C:
 			if now.After(deadline) {
-				return fmt.Errorf("readiness timeout (%s) exceeded", p.cfg.ReadinessTimeout)
+				return "", fmt.Errorf("readiness timeout (%s) exceeded", p.cfg.ReadinessTimeout)
 			}
 
 			_, ready, err := p.cfg.Scaler.GetDeploymentState(ctx, p.cfg.Namespace, p.cfg.Deployment)
@@ -198,7 +214,8 @@ func (p *WakeProxy) waitForReady(ctx context.Context) error {
 			}
 
 			if ready > 0 {
-				return nil
+				podIP, _ := p.cfg.Scaler.GetReadyPodIP(ctx, p.cfg.Namespace, p.cfg.Deployment)
+				return podIP, nil
 			}
 		}
 	}

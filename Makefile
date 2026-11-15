@@ -1,7 +1,7 @@
 # KubeZero Makefile
 # Builds and manages KubeZero operator and wake-proxy components
 
-.PHONY: all build test vet clean docker-build run-proxy-mock run-controller-mock
+.PHONY: all build test vet clean docker-build test-e2e run-proxy-mock run-controller-mock
 
 BIN_DIR := bin
 GO_FILES := $(shell find . -name '*.go' -not -path './vendor/*')
@@ -20,6 +20,9 @@ $(BIN_DIR)/wake-proxy: $(GO_FILES)
 
 test:
 	go test -v -race ./...
+
+test-e2e: docker-build
+	./hack/test-e2e.sh
 
 vet:
 	go vet ./...

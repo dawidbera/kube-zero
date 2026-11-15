@@ -1,5 +1,5 @@
-# ClusterRole defining KubeZero RBAC permissions across the cluster
 {{- if .Values.rbac.create -}}
+# ClusterRole defining KubeZero RBAC permissions across the cluster
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

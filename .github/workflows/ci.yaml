@@ -1,5 +1,6 @@
 # Continuous Integration Workflow for KubeZero
-# Runs tests with Go race detection, static code analysis (go vet), binary compilation, and Helm chart linting.
+# Runs tests with Go race detection, static code analysis (go vet), binary compilation, Helm chart linting,
+# and full End-to-End (E2E) integration on an ephemeral k3d Kubernetes cluster.
 name: CI
 
 on:
@@ -70,3 +71,30 @@ jobs:
 
       - name: Lint KubeZero Helm Chart
         run: helm lint charts/kube-zero
+
+  # End-to-End Kubernetes Cluster Test
+  e2e:
+    name: Run E2E Integration on k3d
+    runs-on: ubuntu-latest
+    needs: [test, build, helm-lint]
+    steps:
+      - name: Check out repository source
+        uses: actions/checkout@v4
+
+      - name: Set up Go runtime environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Set up Helm CLI
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Install k3d CLI
+        run: |
+          wget -q -O - https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+      - name: Execute E2E Test Suite on ephemeral k3d cluster
+        run: make test-e2e

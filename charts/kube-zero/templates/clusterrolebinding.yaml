@@ -1,5 +1,5 @@
-# ClusterRoleBinding connecting ServiceAccount to ClusterRole
 {{- if .Values.rbac.create -}}
+# ClusterRoleBinding connecting ServiceAccount to ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

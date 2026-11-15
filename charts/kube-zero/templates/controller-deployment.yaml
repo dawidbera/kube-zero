@@ -29,6 +29,15 @@ spec:
           args:
             - "--sync-interval={{ .Values.controller.syncInterval }}"
             - "--metrics-port={{ .Values.controller.metricsPort }}"
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: NAMESPACE
+              value: {{ .Values.controller.watchNamespace | default "" | quote }}
+            {{- with .Values.controller.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.controller.metricsPort }}

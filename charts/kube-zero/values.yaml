@@ -32,6 +32,8 @@ controller:
   # Arguments passed to the controller binary
   syncInterval: "30s"
   metricsPort: 9091
+  extraArgs: []
+  env: []
 
   # Resource allocations (KubeZero controller is lightweight Go binary)
   resources:
@@ -64,6 +66,12 @@ wakeProxy:
   # Default timeouts and buffer configurations
   readinessTimeout: "45s"
   maxBufferedBodyBytes: 10485760 # 10MB limit
+  # Target upstream routing
+  targetUrl: "http://127.0.0.1:3000"
+  targetNamespace: "default"
+  targetDeployment: "sample-app"
+  extraArgs: []
+  env: []
 
   # Resource allocations for high-throughput HTTP proxy
   resources:

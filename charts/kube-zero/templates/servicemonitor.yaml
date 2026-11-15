@@ -1,5 +1,5 @@
-# ServiceMonitor for Prometheus Operator automated metric scraping
 {{- if .Values.monitoring.serviceMonitor.enabled }}
+# ServiceMonitor for Prometheus Operator automated metric scraping
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
