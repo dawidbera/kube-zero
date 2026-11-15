@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -170,4 +171,66 @@ func (m *MockScaler) WasScaleUpCalled() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.scaleUpCalled
+}
+
+// SimulatedScaler simulates realistic Kubernetes sleep and cold-start wake cycles for local development.
+type SimulatedScaler struct {
+	mu           sync.Mutex
+	desired      int32
+	ready        int32
+	wakeDelay    time.Duration
+	idleTimeout  time.Duration
+	lastActivity time.Time
+}
+
+// NewSimulatedScaler returns a Scaler simulating sleep after inactivity and cold-start pod boot delays.
+func NewSimulatedScaler(wakeDelay, idleTimeout time.Duration) *SimulatedScaler {
+	return &SimulatedScaler{
+		desired:      0,
+		ready:        0,
+		wakeDelay:    wakeDelay,
+		idleTimeout:  idleTimeout,
+		lastActivity: time.Now(),
+	}
+}
+
+// GetDeploymentState returns the simulated replica count, auto-sleeping if idleTimeout has elapsed.
+func (s *SimulatedScaler) GetDeploymentState(ctx context.Context, namespace, name string) (int32, int32, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If workload has been idle past timeout, simulate automated scale-down to 0
+	if s.ready > 0 && s.idleTimeout > 0 && time.Since(s.lastActivity) > s.idleTimeout {
+		s.ready = 0
+		s.desired = 0
+	}
+
+	return s.desired, s.ready, nil
+}
+
+// ScaleUp triggers an asynchronous wake-up delay before setting ready replicas to targetReplicas.
+func (s *SimulatedScaler) ScaleUp(ctx context.Context, namespace, name string, targetReplicas int32) error {
+	s.mu.Lock()
+	s.desired = targetReplicas
+	s.lastActivity = time.Now()
+	s.mu.Unlock()
+
+	// Simulate pod startup time
+	go func() {
+		time.Sleep(s.wakeDelay)
+		s.mu.Lock()
+		s.ready = targetReplicas
+		s.lastActivity = time.Now()
+		s.mu.Unlock()
+	}()
+
+	return nil
+}
+
+// GetReadyPodIP returns an empty string to allow WakeProxy to forward to the configured TargetURL.
+func (s *SimulatedScaler) GetReadyPodIP(ctx context.Context, namespace, name string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastActivity = time.Now()
+	return "", nil
 }

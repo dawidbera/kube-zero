@@ -61,10 +61,40 @@ func main() {
 		os.Exit(1)
 	}
 
+	reg := prometheus.DefaultRegisterer
+	metrics := finops.NewMetrics(reg)
+
 	var scaler proxy.Scaler
 	if *mockModeFlag {
-		logger.Info("running in mock mode with in-memory scaler", "namespace", *namespaceFlag, "deployment", *deploymentFlag)
-		scaler = proxy.NewMockScaler(1, 1)
+		logger.Info("running in mock mode with simulated auto-sleep/wake scaler", "namespace", *namespaceFlag, "deployment", *deploymentFlag)
+		scaler = proxy.NewSimulatedScaler(600*time.Millisecond, 10*time.Second)
+
+		// Seed initial demo FinOps metrics for Grafana visualization
+		metrics.CostSavingsUsdTotal.WithLabelValues(*namespaceFlag, *deploymentFlag).Add(28.40)
+		metrics.CostSavingsUsdTotal.WithLabelValues("dev", "billing-service").Add(45.15)
+		metrics.CostSavingsUsdTotal.WithLabelValues("staging", "payment-api").Add(12.80)
+
+		metrics.SleepingDeployments.WithLabelValues(*namespaceFlag, *deploymentFlag).Set(1)
+		metrics.SleepingDeployments.WithLabelValues("dev", "billing-service").Set(1)
+		metrics.SleepingDeployments.WithLabelValues("staging", "payment-api").Set(0)
+
+		metrics.WakeEventsTotal.WithLabelValues(*namespaceFlag, *deploymentFlag, "success").Add(6)
+		metrics.WakeEventsTotal.WithLabelValues("dev", "billing-service", "success").Add(12)
+		metrics.WakeEventsTotal.WithLabelValues(*namespaceFlag, *deploymentFlag, "timeout").Add(0)
+
+		metrics.WakeDurationSeconds.WithLabelValues(*namespaceFlag, *deploymentFlag).Observe(0.65)
+		metrics.WakeDurationSeconds.WithLabelValues(*namespaceFlag, *deploymentFlag).Observe(0.72)
+		metrics.WakeDurationSeconds.WithLabelValues("dev", "billing-service").Observe(1.10)
+
+		// Background ticker accumulating live simulated FinOps cost savings
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				metrics.CostSavingsUsdTotal.WithLabelValues(*namespaceFlag, *deploymentFlag).Add(0.02)
+				metrics.CostSavingsUsdTotal.WithLabelValues("dev", "billing-service").Add(0.04)
+			}
+		}()
 	} else {
 		k8sClient, err := k8s.NewClientset(*kubeconfigFlag)
 		if err != nil {
@@ -75,9 +105,6 @@ func main() {
 			scaler = proxy.NewKubernetesScaler(k8sClient)
 		}
 	}
-
-	reg := prometheus.DefaultRegisterer
-	metrics := finops.NewMetrics(reg)
 
 	wakeProxy, err := proxy.NewWakeProxy(proxy.Config{
 		TargetURL:            targetParsed,

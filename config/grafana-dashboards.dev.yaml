@@ -1,0 +1,13 @@
+# Grafana dashboard provider provisioning for local development
+# Automatically pre-loads KubeZero dashboards from the /dashboards directory.
+apiVersion: 1
+
+providers:
+  - name: "KubeZero Dashboards"
+    orgId: 1
+    folder: "KubeZero"
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

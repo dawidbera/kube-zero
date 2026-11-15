@@ -36,3 +36,19 @@ services:
       - ./config/prometheus.dev.yaml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - wake-proxy
+
+  # Grafana dashboard visualizing FinOps savings & wake latency (http://localhost:3000)
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./config/grafana-datasources.dev.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./config/grafana-dashboards.dev.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./dashboards:/etc/grafana/provisioning/dashboards/json:ro
+    depends_on:
+      - prometheus
